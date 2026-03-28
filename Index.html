@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>銀行出納放行申請工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", sans-serif;
+    background: #f5f4f0; color: #1a1a1a; min-height: 100vh; padding: 2rem 1rem;
+  }
+  .container { max-width: 640px; margin: 0 auto; }
+  header { margin-bottom: 1.5rem; }
+  header h1 { font-size: 20px; font-weight: 600; color: #111; }
+  header p { font-size: 13px; color: #888; margin-top: 4px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 1.5rem; }
+  .tab {
+    padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: 0.5px solid #d8d5ce; background: #fff; color: #777; transition: all 0.15s;
+  }
+  .tab.active { background: #1a1a1a; color: #fff; border-color: transparent; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .card { background: #fff; border: 0.5px solid #e0ddd6; border-radius: 14px; padding: 1.5rem; margin-bottom: 1.25rem; }
+  .card-title { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #999; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field.full { grid-column: 1 / -1; }
+  label { font-size: 12px; color: #777; font-weight: 500; }
+  input, select, textarea {
+    border: 0.5px solid #d8d5ce; border-radius: 8px; padding: 9px 11px;
+    font-size: 14px; color: #1a1a1a; background: #fafaf8; width: 100%;
+    outline: none; font-family: inherit; transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #999; background: #fff; }
+  textarea { resize: vertical; min-height: 60px; }
+
+  /* PDF 上傳區 */
+  .upload-main {
+    border: 2px dashed #d8d5ce; border-radius: 10px; padding: 2rem;
+    text-align: center; cursor: pointer; background: #fafaf8;
+    transition: border-color 0.15s;
+  }
+  .upload-main:hover { border-color: #aaa; background: #f5f4f0; }
+  .upload-main input[type=file] { display: none; }
+  .upload-main label { display: block; cursor: pointer; width: 100%; }
+  .upload-main.has-file { border-color: #2d6e2d; background: #f0faf0; }
+  .upload-main .upload-icon { font-size: 28px; margin-bottom: 8px; }
+  .upload-main .upload-label { font-size: 14px; color: #555; font-weight: 500; }
+  .upload-main .upload-sub { font-size: 12px; color: #999; margin-top: 4px; }
+
+  .parse-status {
+    font-size: 13px; padding: 8px 13px; border-radius: 8px; margin-top: 10px; display: none;
+  }
+  .parse-status.loading { display: block; color: #666; background: #f0f0f0; }
+  .parse-status.success { display: block; color: #2d6e2d; background: #e8f4e8; }
+  .parse-status.error   { display: block; color: #a32d2d; background: #fce8e8; }
+
+  /* 解析結果預覽 */
+  .parsed-rows { margin-top: 12px; display: none; }
+  .parsed-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: #fafaf8; border: 0.5px solid #e0ddd6; border-radius: 8px; margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .parsed-row .row-name { flex: 1; color: #333; }
+  .parsed-row .row-amount { color: #555; font-variant-numeric: tabular-nums; min-width: 100px; text-align: right; }
+  .parsed-row .row-batch { color: #999; font-size: 11px; min-width: 80px; }
+
+  .upload-area {
+    border: 1.5px dashed #d8d5ce; border-radius: 8px; padding: 14px;
+    text-align: center; cursor: pointer; font-size: 13px; color: #999;
+    background: #fafaf8; transition: border-color 0.15s; position: relative;
+  }
+  .upload-area:hover { border-color: #aaa; background: #f5f4f0; }
+  .upload-area input[type=file] { display: none; }
+  .upload-area label { display: block; cursor: pointer; width: 100%; }
+  .upload-area.has-file { border-color: #2d6e2d; color: #2d6e2d; background: #f0faf0; }
+  .upload-area .filename { font-size: 12px; margin-top: 4px; }
+
+  .reminder-info { background: #f5f4f0; border-radius: 8px; padding: 10px 13px; font-size: 13px; color: #777; margin-top: 10px; }
+  .reminder-info strong { color: #333; }
+  .preview-card {
+    background: #fafaf8; border: 0.5px solid #e0ddd6; border-radius: 10px;
+    padding: 1rem 1.25rem; font-size: 14px; line-height: 1.9; white-space: pre-wrap;
+    min-height: 80px; color: #1a1a1a; font-family: "Menlo", "Courier New", monospace;
+  }
+  .btn-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  button {
+    border: 0.5px solid #d8d5ce; border-radius: 8px; background: #fff;
+    padding: 9px 18px; font-size: 13px; color: #333; cursor: pointer;
+    font-family: inherit; transition: background 0.12s;
+  }
+  button:hover { background: #f5f4f0; }
+  button:active { transform: scale(0.98); }
+  .btn-primary { background: #1a1a1a; color: #fff; border-color: transparent; font-weight: 500; }
+  .btn-primary:hover { background: #333; }
+  .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-email { background: #e8f4e8; color: #2d6e2d; border-color: transparent; font-weight: 500; }
+  .btn-email:hover { background: #d4ecd4; }
+  .btn-email:disabled { opacity: 0.35; cursor: not-allowed; }
+  .status { font-size: 13px; padding: 7px 13px; border-radius: 6px; display: none; margin-top: 10px; line-height: 1.6; }
+  .status.success { display: block; color: #2d6e2d; background: #e8f4e8; }
+  .status.error   { display: block; color: #a32d2d; background: #fce8e8; }
+  .status.loading { display: block; color: #666; background: #f0f0f0; }
+
+  /* 待放行清單 */
+  .record-item { border: 0.5px solid #e0ddd6; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; background: #fff; display: flex; gap: 12px; align-items: flex-start; }
+  .record-info { flex: 1; }
+  .record-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+  .record-meta { font-size: 12px; color: #777; line-height: 1.8; }
+  .record-meta a { color: #1a6fb5; text-decoration: none; }
+  .days-badge { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 6px; white-space: nowrap; margin-top: 4px; display: inline-block; }
+  .days-urgent { background: #fce8e8; color: #a32d2d; }
+  .days-soon   { background: #fffbea; color: #7a6200; }
+  .days-ok     { background: #e8f4e8; color: #2d6e2d; }
+  .empty-state { text-align: center; padding: 2rem; color: #aaa; font-size: 14px; }
+  .list-status { font-size: 13px; padding: 7px 13px; border-radius: 6px; display: none; margin-bottom: 12px; }
+  .list-status.loading { display: block; color: #666; background: #f0f0f0; }
+  .list-status.error   { display: block; color: #a32d2d; background: #fce8e8; }
+  .btn-done { background: #e8f4e8; color: #2d6e2d; border-color: transparent; font-size: 12px; padding: 6px 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>銀行出納放行申請</h1>
+    <p>詠鑠生活股份有限公司</p>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('form')">新增申請</div>
+    <div class="tab" onclick="switchTab('list')">待放行清單</div>
+  </div>
+
+  <!-- 新增申請 -->
+  <div class="page active" id="page-form">
+
+    <!-- PDF 上傳自動解析 -->
+    <div class="card">
+      <p class="card-title">上傳銀行 PDF 自動填入</p>
+      <div class="upload-main" id="pdf-main-area" onclick="document.getElementById('pdf-main-input').click()">
+        <div class="upload-icon">📄</div>
+        <div class="upload-label">點擊選擇銀行 PDF 或截圖</div>
+        <div class="upload-sub">PDF 自動抓取資料；圖片請手動填入欄位</div>
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png" id="pdf-main-input" onchange="parsePDF()" style="position:absolute;left:-9999px" />
+      </div>
+      <div class="parse-status" id="parse-status"></div>
+      <div class="parsed-rows" id="parsed-rows"></div>
+    </div>
+
+    <!-- 申請資訊（可修改） -->
+    <div class="card">
+      <p class="card-title">申請資訊（可修改）</p>
+      <div class="grid">
+        <div class="field">
+          <label>銀行名稱</label>
+          <select id="bank">
+            <option>合庫</option><option>兆豐銀行</option>
+            <option>中國信託</option><option>永豐銀行</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>幣別</label>
+          <select id="currency">
+            <option>NTD</option><option>AUD</option><option>NZD</option>
+            <option>USD</option><option>EUR</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Trans # / 交易批號</label>
+          <input id="trans" placeholder="例：000000079" />
+        </div>
+        <div class="field">
+          <label>總金額</label>
+          <input id="amount" type="number" placeholder="789348" />
+        </div>
+        <div class="field">
+          <label>Value Date 付款日期</label>
+          <input id="valuedate" type="date" />
+        </div>
+        <div class="field full">
+          <label>受款方清單</label>
+          <textarea id="payee" rows="4" placeholder="自動填入或手動輸入"></textarea>
+        </div>
+        <div class="field full">
+          <label>備註（選填）</label>
+          <textarea id="note" placeholder="如有特殊說明請填寫"></textarea>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- 附件上傳 -->
+    <div class="card">
+      <p class="card-title">附件上傳（選填）</p>
+      <div class="field">
+        <label class="field-label" style="font-size:12px;color:#777;font-weight:500;">銀行待放行截圖</label>
+        <div class="upload-area" id="img-area" onclick="document.getElementById('img-input').click()" style="border:1.5px dashed #d8d5ce;border-radius:8px;padding:14px;text-align:center;cursor:pointer;font-size:13px;color:#999;background:#fafaf8;">
+          <div>點擊選擇圖片</div>
+          <div id="img-name" style="font-size:12px;margin-top:4px;color:#2d6e2d;"></div>
+          <input type="file" accept="image/*" id="img-input" onchange="handleImg()" style="position:absolute;left:-9999px" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 提醒設定 -->
+    <div class="card">
+      <p class="card-title">提醒設定</p>
+      <div class="grid">
+        <div class="field full">
+          <label>提醒 Email 寄給（你自己的信箱）</label>
+          <input id="remind-email" type="email" placeholder="your@email.com" />
+        </div>
+      </div>
+      <div class="reminder-info" id="reminder-hint">填入 Value Date 後，將自動計算提醒日期</div>
+    </div>
+
+    <!-- 訊息預覽 -->
+    <div class="card">
+      <p class="card-title">訊息預覽</p>
+      <div class="preview-card" id="preview">請填寫上方欄位或上傳 PDF…</div>
+      <div class="btn-row">
+        <button class="btn-primary" id="submit-btn" onclick="submitAll()">上傳並送出</button>
+        <button onclick="copyMsg()">複製訊息</button>
+        <button onclick="clearAll()">清除</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <!-- 待放行清單 -->
+  <div class="page" id="page-list">
+    <div class="card">
+      <p class="card-title">待放行清單</p>
+      <div class="list-status" id="list-status"></div>
+      <div id="record-list"><div class="empty-state">載入中…</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbx2dFQR2aPC4vrxXXyzOCHoR4pYulJAP33CKAZCU26GASvXA7bEwrdl1oTi1eeL9lmudg/exec';
+
+let pdfBase64 = '', pdfFileName = '', imgBase64 = '', imgFileName = '', imgUrl = '';
+let parsedPayees = [];
+
+// ── Tab ──
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', (i===0&&tab==='form')||(i===1&&tab==='list'));
+  });
+  document.getElementById('page-form').classList.toggle('active', tab==='form');
+  document.getElementById('page-list').classList.toggle('active', tab==='list');
+  if (tab==='list') loadList();
+}
+
+// ── PDF 解析 ──
+async function parsePDF() {
+  const input = document.getElementById('pdf-main-input');
+  const file = input.files[0];
+  if (!file) return;
+
+  pdfFileName = file.name;
+  const statusEl = document.getElementById('parse-status');
+  const isImage = file.type.startsWith('image/');
+
+  // 讀 base64
+  pdfBase64 = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+
+  document.getElementById('pdf-main-area').classList.add('has-file');
+
+  // 如果是圖片，直接顯示預覽，請手動填
+  if (isImage) {
+    statusEl.className = 'parse-status success';
+    statusEl.textContent = '✓ 圖片已載入！請手動填入下方欄位';
+    document.getElementById('parsed-rows').style.display = 'none';
+    return;
+  }
+
+  statusEl.className = 'parse-status loading';
+  statusEl.textContent = '讀取 PDF 中…';
+
+  // 用 pdf.js 抓文字
+  try {
+    const arrayBuf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText += content.items.map(s => s.str).join(' ') + '\n';
+    }
+
+    const result = extractFromText(fullText);
+
+    if (result) {
+      fillForm(result);
+      document.getElementById('pdf-main-area').classList.add('has-file');
+      statusEl.className = 'parse-status success';
+      statusEl.textContent = `✓ 解析完成！找到 ${result.payees.length} 筆交易，總金額 ${result.currency} ${Number(result.totalAmount).toLocaleString()}`;
+      showParsedRows(result.payees);
+    } else {
+      statusEl.className = 'parse-status error';
+      statusEl.textContent = '無法自動解析，請手動填入欄位';
+    }
+  } catch(e) {
+    statusEl.className = 'parse-status error';
+    statusEl.textContent = '讀取失敗：' + e.message;
+  }
+}
+
+function extractFromText(text) {
+  try {
+    const n = text.replace(/\s+/g, ' ');
+
+    // 銀行名稱
+    let bank = '兆豐銀行';
+    if (/合作金庫|合庫/i.test(n)) bank = '合庫';
+    else if (/兆豐/i.test(n)) bank = '兆豐銀行';
+    else if (/中國信託/i.test(n)) bank = '中國信託';
+    else if (/永豐/i.test(n)) bank = '永豐銀行';
+
+    // 幣別 — 支援兆豐（幣別 TWD）和合庫（AUD 199,770.24）
+    let currency = 'NTD';
+    const currMatch = n.match(/幣別[^A-Z]{0,20}(TWD|USD|AUD|NZD|EUR)/) ||
+                      n.match(/總金額[^\d]{0,10}(TWD|USD|AUD|NZD|EUR)/) ||
+                      n.match(/(AUD|USD|NZD|EUR|TWD)\s+[\d,]+\.\d{2}/);
+    if (currMatch) currency = currMatch[1] === 'TWD' ? 'NTD' : currMatch[1];
+
+    // Value Date — 找扣款日期/付款日期
+    let valueDate = '';
+    // 合庫：扣款日期 2026/03/30
+    const kkMatch = n.match(/扣款日期[\s\S]{0,10}(\d{4}[\/-]\d{2}[\/-]\d{2})/);
+    if (kkMatch) {
+      valueDate = kkMatch[1].replace(/\//g, '-');
+    } else {
+      // 兆豐：出現最多次的日期
+      const allDates = n.match(/(\d{4})[\/-](\d{2})[\/-](\d{2})/g) || [];
+      const dateCounts = {};
+      allDates.forEach(d => {
+        const norm = d.replace(/\//g, '-');
+        dateCounts[norm] = (dateCounts[norm] || 0) + 1;
+      });
+      if (Object.keys(dateCounts).length > 0) {
+        valueDate = Object.entries(dateCounts).sort((a,b) => b[1]-a[1])[0][0];
+      }
+    }
+
+    // 總金額 — 兆豐：總金額 xxx TWD 789,348.00 / 合庫：AUD 199,770.24
+    let totalAmount = 0;
+    const totalMatch = n.match(/總金額[^\d]{0,50}([\d,]+\.\d{2})/) ||
+                       n.match(/待放行\s+\d+\s+(?:AUD|USD|NZD|EUR|TWD)\s+([\d,]+\.\d{2})/);
+    if (totalMatch) totalAmount = parseFloat(totalMatch[1].replace(/,/g, ''));
+
+    // Trans # — 合庫格式：20260328NAP3388182，直接找
+    let trans = '';
+    const transMatch = n.match(/(\d{8}[A-Z]{3}\d+)/);
+    if (transMatch) trans = transMatch[1];
+
+    // 受款方
+    const payees = [];
+    const seen = new Set();
+
+    // 合庫格式：英文受款方出現在金額前面
+    // 找所有英文公司名，然後往後找金額
+    const engPayeeMatch = n.match(/([A-Z][A-Z &]{3,}(?:PTY LTD|LTD|CO\.|INC|CORP|LIMITED|COMPANY|BANK|BRANCH))/g);
+    if (engPayeeMatch) {
+      engPayeeMatch.forEach(name => {
+        const clean = name.trim();
+        // 排除銀行名稱（收款銀行）
+        if (!seen.has(clean) && clean.length > 3 && !/COMMONWEALTH|BANK|BRANCH/.test(clean)) {
+          seen.add(clean);
+          const idx = n.indexOf(clean);
+          // 往後找金額
+          const nearby = n.substring(idx, idx + 300);
+          const amt = nearby.match(/(AUD|USD|NZD|EUR|TWD)\s*([\d,]+\.\d{2})/);
+          if (amt) {
+            const amtVal = parseFloat(amt[2].replace(/,/g, ''));
+            payees.push({ name: clean, amount: amtVal, currency: amt[1] === 'TWD' ? 'NTD' : amt[1] });
+          }
+        }
+      });
+    }
+
+    // 兆豐格式：中文受款方，用批號切割
+    if (payees.length === 0) {
+      const batchSplit = n.split(/(?=0{5,}\d{3,})/);
+      batchSplit.forEach(segment => {
+        const amtMatch = segment.match(/(TWD|USD|AUD|NZD|EUR)\s*([\d,]+\.\d{2})/);
+        if (!amtMatch) return;
+        const amt = parseFloat(amtMatch[2].replace(/,/g, ''));
+        if (amt <= 0) return;
+        const segCurrency = amtMatch[1] === 'TWD' ? 'NTD' : amtMatch[1];
+        const nameMatch = segment.match(/[\u4e00-\u9fff]{2,}(?:股份有限公司|有限公司)/g);
+        if (nameMatch) {
+          const candidates = nameMatch.filter(name => !name.includes('詠鑠'));
+          if (candidates.length > 0) {
+            const name = candidates[0];
+            if (!seen.has(name)) {
+              seen.add(name);
+              payees.push({ name, amount: amt, currency: segCurrency });
+            } else {
+              const existing = payees.find(p => p.name === name);
+              if (existing) existing.amount += amt;
+            }
+          }
+        }
+      });
+    }
+
+    if (!totalAmount && payees.length > 0) {
+      totalAmount = payees.reduce((s, p) => s + p.amount, 0);
+    }
+
+    return { bank, currency, valueDate, totalAmount, payees, trans };
+  } catch(e) {
+    return null;
+  }
+}
+
+function fillForm(result) {
+  // 銀行
+  const bankEl = document.getElementById('bank');
+  for (let i = 0; i < bankEl.options.length; i++) {
+    if (bankEl.options[i].value === result.bank) { bankEl.selectedIndex = i; break; }
+  }
+  // 幣別
+  const currEl = document.getElementById('currency');
+  for (let i = 0; i < currEl.options.length; i++) {
+    if (currEl.options[i].value === result.currency) { currEl.selectedIndex = i; break; }
+  }
+  // Trans
+  if (result.trans) document.getElementById('trans').value = result.trans;
+  // 金額
+  if (result.totalAmount) document.getElementById('amount').value = result.totalAmount;
+  // Value Date
+  if (result.valueDate) document.getElementById('valuedate').value = result.valueDate;
+  // 受款方
+  parsedPayees = result.payees;
+  if (result.payees.length > 0) {
+    document.getElementById('payee').value = result.payees
+      .map(p => `${p.name} — ${p.currency} ${Number(p.amount).toLocaleString()}`)
+      .join('\n');
+  }
+  updateReminder();
+  update();
+}
+
+function showParsedRows(payees) {
+  const el = document.getElementById('parsed-rows');
+  if (!payees.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = payees.map((p, i) => `
+    <div class="parsed-row">
+      <span class="row-name">${i+1}. ${p.name}</span>
+      <span class="row-amount">${p.currency} ${Number(p.amount).toLocaleString()}</span>
+    </div>`).join('');
+}
+
+// ── 截圖 ──
+function handleImg() {
+  const input = document.getElementById('img-input');
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    imgBase64 = e.target.result; imgFileName = file.name; imgUrl = '';
+    document.getElementById('img-area').classList.add('has-file');
+    document.getElementById('img-name').textContent = file.name;
+  };
+  reader.readAsDataURL(file);
+}
+
+// 拖曳
+const imgArea = document.getElementById('img-area');
+// 拖曳功能已移除，使用點擊選檔
+
+// ── 欄位事件 ──
+['bank','currency','trans','amount','valuedate','payee','note'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', update);
+  if (el.tagName==='SELECT') el.addEventListener('change', update);
+});
+document.getElementById('valuedate').addEventListener('input', updateReminder);
+
+function getReminderDate(vd) {
+  if (!vd) return null;
+  const d = new Date(vd); d.setDate(d.getDate()-2); return d;
+}
+function fmtDisplay(d) {
+  if (!d) return '';
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function updateReminder() {
+  const vd = document.getElementById('valuedate').value;
+  const hint = document.getElementById('reminder-hint');
+  if (!vd) { hint.innerHTML='填入 Value Date 後，將自動計算提醒日期'; return; }
+  const rd = getReminderDate(vd);
+  const today = new Date(); today.setHours(0,0,0,0);
+  hint.innerHTML = rd < today
+    ? `提醒日 <strong>${fmtDisplay(rd)}</strong> 已過，將立即寄出提醒`
+    : `Value Date <strong>${vd}</strong>，提醒日：<strong>${fmtDisplay(rd)}</strong>（前兩天）`;
+}
+
+function getMsg() {
+  const bank = document.getElementById('bank').value;
+  const currency = document.getElementById('currency').value;
+  const amount = document.getElementById('amount').value.trim();
+  const valuedate = document.getElementById('valuedate').value;
+  const payee = document.getElementById('payee').value.trim();
+  const note = document.getElementById('note').value.trim();
+  const trans = document.getElementById('trans').value.trim();
+  if (!amount && !payee) return null;
+
+  const totalCount = parsedPayees.length || 1;
+  let msg = `Dear Alden,\nPlease release the following transaction(s), thank you.\n\n`;
+  msg += `[Bank] ${bank}\n`;
+  if (trans) msg += `[Trans #] ${trans}\n`;
+  if (valuedate) msg += `[Value Date] ${valuedate}\n`;
+  if (amount && currency) msg += `[Total] ${currency} ${Number(amount).toLocaleString()}${parsedPayees.length > 1 ? ` (${totalCount} transactions)` : ''}\n`;
+  if (payee) {
+    msg += `[Payees]\n`;
+    payee.split('\n').filter(l=>l.trim()).forEach((l,i) => { msg += `  ${i+1}. ${l.trim()}\n`; });
+  }
+  if (imgUrl) msg += `[Screenshot] ${imgUrl}\n`;
+  if (note) msg += `\nNote: ${note}\n`;
+  return msg;
+}
+
+function update() {
+  document.getElementById('preview').textContent = getMsg() || '請填寫上方欄位或上傳 PDF…';
+  updateReminder();
+}
+
+function copyMsg() {
+  const msg = getMsg();
+  if (!msg) return;
+  navigator.clipboard.writeText(msg).then(() => showStatus('success', '已複製！貼到 Google Chat 吧'));
+}
+
+function showStatus(type, text) {
+  const el = document.getElementById('status');
+  el.className = `status ${type}`; el.textContent = text;
+  if (type !== 'loading') setTimeout(() => el.className='status', 5000);
+}
+
+async function submitAll() {
+  const vd = document.getElementById('valuedate').value;
+  const email = document.getElementById('remind-email').value.trim();
+  if (!vd) { showStatus('error','請填入 Value Date'); return; }
+  if (!email) { showStatus('error','請填入提醒 Email'); return; }
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  showStatus('loading','上傳中，請稍候…');
+
+  const message = getMsg() || '';
+  const payeeText = document.getElementById('payee').value.trim();
+
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        bank: document.getElementById('bank').value,
+        currency: document.getElementById('currency').value,
+        amount: document.getElementById('amount').value.trim(),
+        trans: document.getElementById('trans').value.trim(),
+        payee: payeeText,
+        valueDate: vd, remindEmail: email,
+        note: document.getElementById('note').value.trim(),
+        imgBase64, imgName: imgFileName,
+        message
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (data.imgUrl) { imgUrl = data.imgUrl; update(); }
+      const rd = getReminderDate(vd);
+      showStatus('success', `已送出！提醒信將於 ${fmtDisplay(rd)} 早上 8 點寄出。\n可複製訊息貼到 Google Chat。`);
+    } else {
+      showStatus('error', `失敗：${data.error || '請稍後再試'}`);
+    }
+  } catch(e) {
+    showStatus('error','無法連線，請稍後再試');
+  }
+  btn.disabled = false;
+}
+
+function clearAll() {
+  ['bank','currency','trans','amount','valuedate','payee','note'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.tagName==='SELECT') el.selectedIndex=0; else el.value='';
+  });
+  document.getElementById('remind-email').value='';
+  document.getElementById('pdf-main-area').classList.remove('has-file');
+  document.getElementById('pdf-main-input').value='';
+  document.getElementById('parse-status').className='parse-status';
+  document.getElementById('parsed-rows').style.display='none';
+  pdfBase64=''; pdfFileName=''; imgBase64=''; imgFileName=''; imgUrl='';
+  parsedPayees=[];
+  document.getElementById('preview').textContent='請填寫上方欄位或上傳 PDF…';
+  document.getElementById('reminder-hint').innerHTML='填入 Value Date 後，將自動計算提醒日期';
+  document.getElementById('status').className='status';
+}
+
+// ── 待放行清單 ──
+async function loadList() {
+  const listEl = document.getElementById('record-list');
+  const statusEl = document.getElementById('list-status');
+  statusEl.className='list-status loading'; statusEl.textContent='載入中…';
+  listEl.innerHTML='';
+  try {
+    const res = await fetch(`${GAS_URL}?action=list`);
+    const data = await res.json();
+    statusEl.className='list-status';
+    if (!data.success || data.records.length===0) {
+      listEl.innerHTML='<div class="empty-state">目前沒有待放行的交易 ✅</div>'; return;
+    }
+    listEl.innerHTML = data.records.map(r => {
+      const vd = new Date(r.valueDate);
+      const daysLeft = Math.ceil((vd - new Date()) / (1000*60*60*24));
+      const badgeClass = daysLeft<=1?'days-urgent':daysLeft<=3?'days-soon':'days-ok';
+      const badgeText = daysLeft<=0?'已逾期':daysLeft===1?'明天到期':`還有 ${daysLeft} 天`;
+      return `
+        <div class="record-item" id="item-${r.key}">
+          <div class="record-info">
+            <div class="record-title">${r.bank} — ${r.currency} ${Number(r.amount||0).toLocaleString()}</div>
+            <div class="record-meta">
+              Value Date：${r.valueDate}<br>
+              ${r.trans ? `Trans #：${r.trans}<br>` : ''}
+              ${r.payee ? r.payee.split('\n').slice(0,3).join('、') + (r.payee.split('\n').length>3?'…':'') : ''}
+              ${r.pdfUrl ? `　<a href="${r.pdfUrl}" target="_blank">📄 PDF</a>` : ''}
+            </div>
+            <span class="days-badge ${badgeClass}">${badgeText}</span>
+          </div>
+          <button class="btn-done" onclick="markDone('${r.key}')">已放行</button>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    statusEl.className='list-status error'; statusEl.textContent='載入失敗，請稍後再試';
+  }
+}
+
+async function markDone(key) {
+  const item = document.getElementById(`item-${key}`);
+  if (item) item.style.opacity='0.4';
+  try {
+    const res = await fetch(`${GAS_URL}?action=complete&key=${encodeURIComponent(key)}`);
+    const data = await res.json();
+    if (data.success) {
+      if (item) item.remove();
+      const listEl = document.getElementById('record-list');
+      if (!listEl.querySelector('.record-item')) {
+        listEl.innerHTML='<div class="empty-state">目前沒有待放行的交易 ✅</div>';
+      }
+    } else { if (item) item.style.opacity='1'; }
+  } catch(e) { if (item) item.style.opacity='1'; }
+}
+</script>
+</body>
+</html>
