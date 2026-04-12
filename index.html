@@ -200,7 +200,7 @@
       <div class="field">
         <label class="field-label" style="font-size:12px;color:#777;font-weight:500;">銀行待放行截圖</label>
         <div class="upload-area" id="img-area" onclick="document.getElementById('img-input').click()" style="border:1.5px dashed #d8d5ce;border-radius:8px;padding:14px;text-align:center;cursor:pointer;font-size:13px;color:#999;background:#fafaf8;">
-          <div>點擊選擇圖片</div>
+          <div>點擊選擇圖片，或 <b>Ctrl+V</b> 貼上截圖</div>
           <div id="img-name" style="font-size:12px;margin-top:4px;color:#2d6e2d;"></div>
           <input type="file" accept="image/*" id="img-input" onchange="handleImg()" style="position:absolute;left:-9999px" />
         </div>
@@ -473,14 +473,36 @@ function handleImg() {
   const input = document.getElementById('img-input');
   const file = input.files[0];
   if (!file) return;
+  loadImgFile(file);
+}
+
+function loadImgFile(file) {
   const reader = new FileReader();
   reader.onload = e => {
-    imgBase64 = e.target.result; imgFileName = file.name; imgUrl = '';
+    imgBase64 = e.target.result;
+    imgFileName = file.name || 'screenshot.png';
+    imgUrl = '';
     document.getElementById('img-area').classList.add('has-file');
-    document.getElementById('img-name').textContent = file.name;
+    document.getElementById('img-name').textContent = imgFileName;
   };
   reader.readAsDataURL(file);
 }
+
+// Ctrl+V 貼上截圖
+document.addEventListener('paste', function(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.startsWith('image/')) {
+      const file = items[i].getAsFile();
+      if (file) {
+        loadImgFile(file);
+        document.getElementById('img-name').textContent = '✓ 已貼上截圖';
+        break;
+      }
+    }
+  }
+});
 
 // 拖曳
 const imgArea = document.getElementById('img-area');
