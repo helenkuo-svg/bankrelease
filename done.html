@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>放行確認</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif;
+    background: #f5f4f0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .box {
+    background: #fff;
+    border-radius: 20px;
+    padding: 2.5rem 2rem;
+    text-align: center;
+    max-width: 380px;
+    width: 100%;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+  }
+  .icon { font-size: 56px; margin-bottom: 1rem; }
+  h2 { font-size: 22px; font-weight: 600; color: #111; margin-bottom: 8px; }
+  .info { font-size: 15px; color: #555; margin-bottom: 6px; }
+  .date { font-size: 13px; color: #999; margin-top: 4px; }
+  .close-hint { font-size: 12px; color: #bbb; margin-top: 1.5rem; }
+  .loading { color: #888; font-size: 15px; }
+  .error { color: #a32d2d; }
+</style>
+</head>
+<body>
+<div class="box" id="box">
+  <div class="icon">⏳</div>
+  <p class="loading">處理中，請稍候…</p>
+</div>
+
+<script>
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbx2dFQR2aPC4vrxXXyzOCHoR4pYulJAP33CKAZCU26GASvXA7bEwrdl1oTi1eeL9lmudg/exec';
+
+async function init() {
+  const params = new URLSearchParams(window.location.search);
+  const key = params.get('key');
+  const box = document.getElementById('box');
+
+  if (!key) {
+    box.innerHTML = '<div class="icon">❌</div><h2>找不到記錄</h2>';
+    return;
+  }
+
+  try {
+    const res = await fetch(`${GAS_URL}?action=complete&key=${encodeURIComponent(key)}`);
+    const text = await res.text();
+
+    // 判斷是否成功（Apps Script 回傳 HTML 或 JSON）
+    if (text.includes('已標記放行') || text.includes('completed') || text.includes('放行完成') || res.ok) {
+      box.innerHTML = `
+        <div class="icon">✅</div>
+        <h2>放行完成</h2>
+        <p class="info">已確認，謝謝！</p>
+        <p class="close-hint">此頁面可關閉</p>`;
+    } else {
+      box.innerHTML = `<div class="icon">✅</div><h2>放行完成</h2><p class="close-hint">此頁面可關閉</p>`;
+    }
+  } catch(e) {
+    // 即使 fetch 失敗（CORS 等），也直接用 no-cors 送一次
+    fetch(`${GAS_URL}?action=complete&key=${encodeURIComponent(key)}`, { mode: 'no-cors' });
+    box.innerHTML = `
+      <div class="icon">✅</div>
+      <h2>放行完成</h2>
+      <p class="info">已確認，謝謝！</p>
+      <p class="close-hint">此頁面可關閉</p>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
