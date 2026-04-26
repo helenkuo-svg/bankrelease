@@ -143,8 +143,8 @@
       <p class="card-title">上傳銀行 PDF 自動填入</p>
       <div class="upload-main" id="pdf-main-area" onclick="document.getElementById('pdf-main-input').click()">
         <div class="upload-icon">📄</div>
-        <div class="upload-label">點擊選擇銀行 PDF 或截圖</div>
-        <div class="upload-sub">PDF 自動抓取資料；圖片請手動填入欄位</div>
+        <div class="upload-label">點擊選擇 / 拖曳 / Ctrl+V 貼上</div>
+        <div class="upload-sub">支援 PDF、JPG、PNG</div>
         <input type="file" accept=".pdf,.jpg,.jpeg,.png" id="pdf-main-input" onchange="parsePDF()" style="position:absolute;left:-9999px" />
       </div>
       <div class="parse-status" id="parse-status"></div>
@@ -200,7 +200,7 @@
       <div class="field">
         <label class="field-label" style="font-size:12px;color:#777;font-weight:500;">銀行待放行截圖</label>
         <div class="upload-area" id="img-area" onclick="document.getElementById('img-input').click()" style="border:1.5px dashed #d8d5ce;border-radius:8px;padding:14px;text-align:center;cursor:pointer;font-size:13px;color:#999;background:#fafaf8;">
-          <div>點擊選擇圖片，或 <b>Ctrl+V</b> 貼上截圖</div>
+          <div>點擊選擇 / 拖曳 / Ctrl+V 貼上截圖</div>
           <div id="img-name" style="font-size:12px;margin-top:4px;color:#2d6e2d;"></div>
           <input type="file" accept="image/*" id="img-input" onchange="handleImg()" style="position:absolute;left:-9999px" />
         </div>
@@ -488,6 +488,34 @@ function loadImgFile(file) {
   reader.readAsDataURL(file);
 }
 
+// 拖曳上傳 PDF
+const pdfMainArea = document.getElementById('pdf-main-area');
+pdfMainArea.addEventListener('dragover', e => { e.preventDefault(); pdfMainArea.style.borderColor='#999'; });
+pdfMainArea.addEventListener('dragleave', () => { pdfMainArea.style.borderColor=''; });
+pdfMainArea.addEventListener('drop', e => {
+  e.preventDefault(); pdfMainArea.style.borderColor='';
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  // 塞進 input 並觸發解析
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  document.getElementById('pdf-main-input').files = dt.files;
+  parsePDF();
+});
+
+// 拖曳上傳截圖
+const imgAreaEl = document.getElementById('img-area');
+if (imgAreaEl) {
+  imgAreaEl.addEventListener('dragover', e => { e.preventDefault(); imgAreaEl.style.borderColor='#2d6e2d'; });
+  imgAreaEl.addEventListener('dragleave', () => { imgAreaEl.style.borderColor=''; });
+  imgAreaEl.addEventListener('drop', e => {
+    e.preventDefault(); imgAreaEl.style.borderColor='';
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    loadImgFile(file);
+  });
+}
+
 // Ctrl+V 貼上截圖
 document.addEventListener('paste', function(e) {
   const items = e.clipboardData && e.clipboardData.items;
@@ -556,6 +584,7 @@ function getMsg() {
     msg += `[Payees]\n`;
     payee.split('\n').filter(l=>l.trim()).forEach((l,i) => { msg += `  ${i+1}. ${l.trim()}\n`; });
   }
+  if (pdfUrl) msg += `[PDF] ${pdfUrl}\n`;
   if (imgUrl) msg += `[Screenshot] ${imgUrl}\n`;
   if (note) msg += `\nNote: ${note}\n`;
   return msg;
@@ -602,12 +631,14 @@ async function submitAll() {
         payee: payeeText,
         valueDate: vd, remindEmail: email,
         note: document.getElementById('note').value.trim(),
+        pdfBase64, pdfName: pdfFileName,
         imgBase64, imgName: imgFileName,
         message
       })
     });
     const data = await res.json();
     if (data.success) {
+      if (data.pdfUrl) { pdfUrl = data.pdfUrl; update(); }
       if (data.imgUrl) { imgUrl = data.imgUrl; update(); }
       const rd = getReminderDate(vd);
       showStatus('success', `已送出！提醒信將於 ${fmtDisplay(rd)} 早上 8 點寄出。\n可複製訊息貼到 Google Chat。`);
