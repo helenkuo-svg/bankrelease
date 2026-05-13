@@ -311,13 +311,25 @@ async function parsePDF(file){
   try{
     const buf=await file.arrayBuffer();
     const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    let allLines=[];
     let txt='';
     for(let i=1;i<=pdf.numPages;i++){
       const pg=await pdf.getPage(i);
       const ct=await pg.getTextContent();
-      txt+=ct.items.map(s=>s.str).join(' ')+'\n';
+      // 依 Y 座標分組，重建行結構
+      const byY={};
+      ct.items.forEach(item=>{
+        const y=Math.round(item.transform[5]);
+        if(!byY[y])byY[y]=[];
+        byY[y].push({x:item.transform[4],str:item.str});
+      });
+      const sortedY=Object.keys(byY).map(Number).sort((a,b)=>b-a);
+      sortedY.forEach(y=>{
+        const row=byY[y].sort((a,b)=>a.x-b.x).map(i=>i.str.trim()).filter(s=>s).join(' ');
+        if(row){allLines.push(row);txt+=row+'\n';}
+      });
     }
-    const r=extract(txt);
+    const r=extract(txt,allLines);
     if(r){
       fill(r);
       showSt('parse-st','ok',`✓ 解析完成！${r.payees.length>0?`找到 ${r.payees.length} 筆，總金額 ${r.currency} ${Number(r.totalAmount).toLocaleString()}`:'請確認欄位資料'}`);
@@ -330,8 +342,49 @@ async function parsePDF(file){
   }
 }
 
-function extract(text){
+// ── 全球金融網格式解析 ──
+function extractGlobalEBanking(lines){
+  const transactions=[];
+  let valueDate='';
+  for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(/^(\d{9})\s+\S+$/);
+    if(m&&i>=1&&i+5<lines.length){
+      const batchNo=m[1];
+      const linePrev=lines[i-1];
+      const lineB=lines[i+1];
+      const lineC=lines[i+2];
+      const lineD=lines[i+3];
+      const lineF=lines[i+5];
+      // 收款方名稱（第一個空格後的部分）
+      const payeeName=linePrev.includes(' ')?linePrev.split(' ').slice(1).join(' ').trim():linePrev;
+      // 付款日期
+      const dateM=lineC.match(/(\d{4}\/\d{2}\/\d{2})/);
+      if(dateM&&!valueDate)valueDate=dateM[1].replace(/\//g,'-');
+      // 金額
+      const amtM=lineD.match(/([\d,]+\.00)$/);
+      const amount=amtM?parseFloat(amtM[1].replace(/,/g,'')):0;
+      // 收款帳號
+      const accts=lineF.trim().split(/\s+/);
+      const payeeAcct=accts.length>1?accts[1]:'';
+      if(payeeName&&amount>0)transactions.push({name:payeeName,amount,currency:'NTD',acct:payeeAcct,batchNo});
+    }
+  }
+  if(transactions.length===0)return null;
+  const totalAmount=transactions.reduce((s,t)=>s+t.amount,0);
+  const allBatch=transactions.map(t=>t.batchNo).join(' / ');
+  return{
+    bank:'合庫',currency:'NTD',valueDate,totalAmount,
+    payees:transactions.map(t=>({name:t.name,amount:t.amount,currency:'NTD'})),
+    trans:allBatch
+  };
+}
+
+function extract(text,lines){
   try{
+    // 全球金融網格式
+    if(/全球.{0,3}金融網|global.{0,5}ebanking/i.test(text)&&lines&&lines.length>0){
+      return extractGlobalEBanking(lines);
+    }
     const n=text.replace(/\s+/g,' ');
 
     // 銀行
