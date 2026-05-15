@@ -329,6 +329,12 @@ async function parsePDF(file){
         if(row){allLines.push(row);txt+=row+'\n';}
       });
     }
+    // DEBUG: 顯示前50行
+    const debugLines=allLines.slice(0,50).map((l,i)=>i+': '+l).join('\n');
+    document.getElementById('parse-st').className='st ld';
+    document.getElementById('parse-st').textContent='DEBUG 行結構（前50行）：\n'+debugLines;
+    document.getElementById('parse-st').style.whiteSpace='pre';
+    console.log('allLines:', allLines);
     const r=extract(txt,allLines);
     if(r){
       fill(r);
