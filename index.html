@@ -329,12 +329,6 @@ async function parsePDF(file){
         if(row){allLines.push(row);txt+=row+'\n';}
       });
     }
-    // DEBUG: 顯示前50行
-    const debugLines=allLines.slice(0,50).map((l,i)=>i+': '+l).join('\n');
-    document.getElementById('parse-st').className='st ld';
-    document.getElementById('parse-st').textContent='DEBUG 行結構（前50行）：\n'+debugLines;
-    document.getElementById('parse-st').style.whiteSpace='pre';
-    console.log('allLines:', allLines);
     const r=extract(txt,allLines);
     if(r){
       fill(r);
@@ -354,45 +348,77 @@ function extractGlobalEBanking(lines){
   const transactions=[];
   let valueDate='';
 
-  for(let i=0;i<lines.length;i++){
-    const m=lines[i].match(/^(\d{9})\s+\S+$/);
-    if(!m||i<3)continue;
-    const batchNo=m[1];
+  if(isMega){
+    // 兆豐格式: pdf.js 會把每個中文字拆開，先合併
+    const norm=lines.map(l=>l.replace(/([^\x00-\x7F])\s+(?=[^\x00-\x7F])/g,'$1'));
 
-    if(isMega){
-      // 兆豐格式: i-2='TWD', i-1 starts with '限公司'
-      if(!/^TWD$/.test(lines[i-2]||'')||!/^限公司/.test(lines[i-1]||''))continue;
-      // 收款方名稱: line i-3
-      const line3=lines[i-3]||'';
-      let payeeName=line3.includes(' ')?line3.split(' ').slice(1).join(' ').trim():line3;
-      // 補上 i-1 的後綴 (e.g. "限公司 司" → "司")
-      const line1parts=(lines[i-1]||'').split(/\s+/);
-      if(line1parts.length>1)payeeName+=''.concat(...line1parts.slice(1));
-      // 金額: i+1 (純數字) 或 i+2 (末尾)
-      const amtM1=(lines[i+1]||'').match(/^([\d,]+\.00)$/);
-      const amtM2=(lines[i+2]||'').match(/([\d,]+\.00)$/);
-      const amount=amtM1?parseFloat(amtM1[1].replace(/,/g,'')):amtM2?parseFloat(amtM2[1].replace(/,/g,'')):0;
-      // 付款日期: 往後找
-      for(let j=i+1;j<=Math.min(i+5,lines.length-1);j++){
-        const dm=(lines[j]||'').match(/(\d{4}\/\d{2}\/\d{2})/);
-        if(dm){if(!valueDate)valueDate=dm[1].replace(/\//g,'-');break;}
+    // 取得付款方公司名稱（從戶名欄位）
+    let payerCo='';
+    for(const l of norm){
+      const m=l.match(/戶名\s+(\S+)/);
+      if(m){payerCo=m[1];break;}
+    }
+
+    for(let i=0;i<norm.length;i++){
+      const m=norm[i].match(/^(\d{9})\s+/);
+      if(!m||i<2||!/限公司/.test(norm[i]))continue;
+      const batchNo=m[1];
+
+      // 收款方名稱: line i-1 去掉 TWD 後綴
+      let payeeName=norm[i-1].replace(/\s*TWD\s*$/,'').trim();
+
+      // 若 i-1 只有 "TWD"，收款方跨行，從 i-2 取
+      if(!payeeName){
+        let line2=norm[i-2]||'';
+        // 去掉付款方前綴
+        if(payerCo){
+          for(let len=payerCo.length-1;len>=1;len--){
+            if(line2.startsWith(payerCo.slice(0,len))){
+              line2=line2.slice(len);break;
+            }
+          }
+        }
+        payeeName=line2.trim();
+        // 批號行 "限公司" 後可能有收款方後綴
+        const extra=norm[i].replace(/^\d{9}\s+限公司/,'').replace(/\s+\S+$/,'').trim();
+        if(extra)payeeName+=extra;
       }
-      if(payeeName&&amount>0)transactions.push({name:payeeName,amount,currency:'NTD',batchNo});
-    }else{
-      // 合庫格式: i-1 含付款+收款方名稱
-      if(i+5>=lines.length)continue;
+
+      // 金額: i+1（純數字）或 i+2（末尾）
+      let amount=0;
+      const a1=(norm[i+1]||'').match(/^([\d,]+\.00)$/);
+      const a2=(norm[i+2]||'').match(/([\d,]+\.00)$/);
+      if(a1)amount=parseFloat(a1[1].replace(/,/g,''));
+      else if(a2)amount=parseFloat(a2[1].replace(/,/g,''));
+
+      // 日期
+      for(let j=i+1;j<=Math.min(i+5,norm.length-1);j++){
+        const d=(norm[j]||'').match(/(\d{4}\/\d{2}\/\d{2})/);
+        if(d){if(!valueDate)valueDate=d[1].replace(/\//g,'-');break;}
+      }
+
+      if(payeeName&&amount>0)
+        transactions.push({name:payeeName,amount,currency:'NTD',batchNo});
+    }
+  }else{
+    // 合庫格式
+    for(let i=0;i<lines.length;i++){
+      const m=lines[i].match(/^(\d{9})\s+\S+$/);
+      if(!m||i<1||i+5>=lines.length)continue;
+      const batchNo=m[1];
       const linePrev=lines[i-1];
       const lineC=lines[i+2];
       const lineD=lines[i+3];
       const lineF=lines[i+5];
       const payeeName=linePrev.includes(' ')?linePrev.split(' ').slice(1).join(' ').trim():linePrev;
-      const dateM=lineC.match(/(\d{4}\/\d{2}\/\d{2})/);
-      if(dateM&&!valueDate)valueDate=dateM[1].replace(/\//g,'-');
-      const amtM=lineD.match(/([\d,]+\.00)$/);
-      const amount=amtM?parseFloat(amtM[1].replace(/,/g,'')):0;
+      const dm=lineC.match(/(\d{4}\/\d{2}\/\d{2})/);
+      if(dm&&!valueDate)valueDate=dm[1].replace(/\//g,'-');
+      const am=lineD.match(/([\d,]+\.00)$/);
+      const amount=am?parseFloat(am[1].replace(/,/g,'')):0;
       const accts=lineF.trim().split(/\s+/);
       const payeeAcct=accts.length>1?accts[1]:'';
-      if(payeeName&&amount>0)transactions.push({name:payeeName,amount,currency:'NTD',acct:payeeAcct,batchNo});
+      if(payeeName&&amount>0)
+        transactions.push({name:payeeName,amount,currency:'NTD',acct:payeeAcct,batchNo});
     }
   }
 
