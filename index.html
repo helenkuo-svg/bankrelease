@@ -349,29 +349,32 @@ function extractGlobalEBanking(lines){
   let valueDate='';
 
   for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(/^(\d{9})\s+\S+$/);
+    if(!m||i<3)continue;
+    const batchNo=m[1];
+
     if(isMega){
-      // 兆豐格式: "000000123 限公司 Helen"
-      const m=lines[i].match(/^(\d{9})\s+.*限公司/);
-      if(!m||i<1||i+2>=lines.length)continue;
-      const batchNo=m[1];
-      const amtM=(lines[i+1]||'').match(/([\d,]+\.00)$/);
-      if(!amtM)continue;
-      const amount=parseFloat(amtM[1].replace(/,/g,''));
-      const dateM=(lines[i+2]||'').match(/(\d{4}\/\d{2}\/\d{2})/);
-      if(dateM&&!valueDate)valueDate=dateM[1].replace(/\//g,'-');
-      let payeeName=(lines[i-1]||'').replace(/\s*TWD\s*$/,'').trim();
-      if(!payeeName){
-        const prev2=(lines[i-2]||'').split(' ');
-        const namePart=prev2.slice(1).join(' ').trim();
-        const batchParts=lines[i].split(/\s+/);
-        payeeName=namePart+(batchParts.length>3?batchParts[2]:'');
+      // 兆豐格式: i-2='TWD', i-1 starts with '限公司'
+      if(!/^TWD$/.test(lines[i-2]||'')||!/^限公司/.test(lines[i-1]||''))continue;
+      // 收款方名稱: line i-3
+      const line3=lines[i-3]||'';
+      let payeeName=line3.includes(' ')?line3.split(' ').slice(1).join(' ').trim():line3;
+      // 補上 i-1 的後綴 (e.g. "限公司 司" → "司")
+      const line1parts=(lines[i-1]||'').split(/\s+/);
+      if(line1parts.length>1)payeeName+=''.concat(...line1parts.slice(1));
+      // 金額: i+1 (純數字) 或 i+2 (末尾)
+      const amtM1=(lines[i+1]||'').match(/^([\d,]+\.00)$/);
+      const amtM2=(lines[i+2]||'').match(/([\d,]+\.00)$/);
+      const amount=amtM1?parseFloat(amtM1[1].replace(/,/g,'')):amtM2?parseFloat(amtM2[1].replace(/,/g,'')):0;
+      // 付款日期: 往後找
+      for(let j=i+1;j<=Math.min(i+5,lines.length-1);j++){
+        const dm=(lines[j]||'').match(/(\d{4}\/\d{2}\/\d{2})/);
+        if(dm){if(!valueDate)valueDate=dm[1].replace(/\//g,'-');break;}
       }
       if(payeeName&&amount>0)transactions.push({name:payeeName,amount,currency:'NTD',batchNo});
     }else{
-      // 合庫格式: "000000123 Helen"
-      const m=lines[i].match(/^(\d{9})\s+\S+$/);
-      if(!m||i<1||i+5>=lines.length)continue;
-      const batchNo=m[1];
+      // 合庫格式: i-1 含付款+收款方名稱
+      if(i+5>=lines.length)continue;
       const linePrev=lines[i-1];
       const lineC=lines[i+2];
       const lineD=lines[i+3];
