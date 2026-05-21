@@ -430,11 +430,58 @@ function extractGlobalEBanking(lines){
   };
 }
 
+
+// ── 合作金庫企業網路銀行格式（轉帳交易狀態查詢）──
+function extractCobankTCB(lines){
+  const norm=lines.map(l=>l.replace(/([^\x00-\x7F])\s+(?=[^\x00-\x7F])/g,'$1'));
+  const transactions=[];
+  let valueDate='';
+  for(let i=2;i<norm.length;i++){
+    const m=norm[i].match(/^(\d{4}\/\d{2}\/\d{2})\s+(AUD|NZD|USD|EUR|GBP|JPY|TWD|HKD|SGD|CNY)\s+([\d,]+\.\d{2})/);
+    if(!m)continue;
+    const date=m[1],currency=m[2],amount=parseFloat(m[3].replace(/,/g,''));
+    if(!valueDate)valueDate=date.replace(/\//g,'-');
+    // case number in next 1-4 lines
+    let caseNo='';
+    for(let j=i+1;j<=Math.min(i+4,norm.length-1);j++){
+      const cm=norm[j].match(/(\d{8}[A-Z]{2,3}\d+)/);
+      if(cm){caseNo=cm[1];break;}
+    }
+    // payee name: look back up to 2 lines
+    const nameParts=[];
+    for(let j=i-1;j>=Math.max(0,i-2);j--){
+      const l=norm[j].trim();
+      if(!l)break;
+      if(/^\d+$/.test(l))continue;
+      if(/扣款|匯款|受款|費用|廠商|案件|序.*號|處理|狀態/.test(l))break;
+      if(/^\d{4}\/\d{2}\/\d{2}/.test(l))break;
+      if(/待放行|已放行|處理中/.test(l))continue;
+      nameParts.unshift(l);
+    }
+    const payeeName=nameParts.join(' ').trim();
+    if(payeeName&&amount>0)transactions.push({name:payeeName,amount,currency,caseNo});
+  }
+  if(transactions.length===0)return null;
+  const totalAmount=transactions.reduce((s,t)=>s+t.amount,0);
+  const allCase=transactions.map(t=>t.caseNo).join(' / ');
+  return{
+    bank:'合庫',
+    currency:transactions[0].currency,
+    valueDate,totalAmount,
+    payees:transactions.map(t=>({name:t.name,amount:t.amount,currency:t.currency})),
+    trans:allCase
+  };
+}
+
 function extract(text,lines){
   try{
     // 全球金融網格式
     if(/全球.{0,3}金融網|global.{0,5}ebanking/i.test(text)&&lines&&lines.length>0){
       return extractGlobalEBanking(lines);
+    }
+    // 合作金庫企業網路銀行（轉帳交易狀態查詢）
+    if(/合作.{0,2}金庫|cobank\.tcb-bank|轉帳交易狀態查詢/i.test(text)&&lines&&lines.length>0){
+      return extractCobankTCB(lines);
     }
     const n=text.replace(/\s+/g,' ');
 
