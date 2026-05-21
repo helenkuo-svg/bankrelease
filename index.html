@@ -401,24 +401,21 @@ function extractGlobalEBanking(lines){
         transactions.push({name:payeeName,amount,currency:'NTD',batchNo});
     }
   }else{
-    // 合庫格式
-    for(let i=0;i<lines.length;i++){
-      const m=lines[i].match(/^(\d{9})\s+\S+$/);
-      if(!m||i<1||i+5>=lines.length)continue;
+    // 合庫格式 - apply same normalization as 兆豐
+    const norm=lines.map(l=>l.replace(/([^\x00-\x7F])\s+(?=[^\x00-\x7F])/g,'$1'));
+    console.log('合庫 norm lines (first 60):', JSON.stringify(norm.slice(0,60)));
+    for(let i=0;i<norm.length;i++){
+      // batch line: 9-digit number followed by text (may have spaces if chars separated)
+      const m=norm[i].match(/^(\d{9})\s+/);
+      if(!m||i<1)continue;
       const batchNo=m[1];
-      const linePrev=lines[i-1];
-      const lineC=lines[i+2];
-      const lineD=lines[i+3];
-      const lineF=lines[i+5];
-      const payeeName=linePrev.includes(' ')?linePrev.split(' ').slice(1).join(' ').trim():linePrev;
-      const dm=lineC.match(/(\d{4}\/\d{2}\/\d{2})/);
-      if(dm&&!valueDate)valueDate=dm[1].replace(/\//g,'-');
-      const am=lineD.match(/([\d,]+\.00)$/);
-      const amount=am?parseFloat(am[1].replace(/,/g,'')):0;
-      const accts=lineF.trim().split(/\s+/);
-      const payeeAcct=accts.length>1?accts[1]:'';
-      if(payeeName&&amount>0)
-        transactions.push({name:payeeName,amount,currency:'NTD',acct:payeeAcct,batchNo});
+      console.log('合庫 batch candidate i='+i+' line='+JSON.stringify(norm[i]));
+      console.log('  i-1='+JSON.stringify(norm[i-1]));
+      console.log('  i+1='+JSON.stringify(norm[i+1]));
+      console.log('  i+2='+JSON.stringify(norm[i+2]));
+      console.log('  i+3='+JSON.stringify(norm[i+3]));
+      console.log('  i+4='+JSON.stringify(norm[i+4]));
+      console.log('  i+5='+JSON.stringify(norm[i+5]||''));
     }
   }
 
