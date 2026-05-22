@@ -370,13 +370,14 @@ function extractMegaByColumn(items,lines){
   const transactions=[];
   let valueDate='';
 
-  const skipRx=/^(限公司|萍|行|定|帳|司|付款資料編輯-?|付款人負擔|收款人代碼:?|待核|預約台幣單筆轉|手續費負擔|目前|備註|統一編號|處理中|已核定)$/;
+  const skipRx=/^(付款資料編輯-?|付款人負擔|收款人代碼:?|待核|預約台幣單筆轉|手續費負擔|目前|備註|統一編號|處理中|已核定|限公司|萍)$/;
+  const curRx=/^(TWD|USD|AUD|NZD|EUR|JPY|GBP|HKD|SGD|CNY)$/;
 
   for(const b of batches){
     const by=b.y;
 
     // Currency near batch (same Y ±10, x > 350)
-    const currIt=norm.find(it=>/^(TWD|USD|AUD|NZD|EUR|JPY|GBP|HKD|SGD|CNY)$/.test(it.str)&&Math.abs(it.y-by)<10&&it.x>350);
+    const currIt=norm.find(it=>curRx.test(it.str)&&Math.abs(it.y-by)<10&&it.x>350);
     const rawCur=currIt?currIt.str:'TWD';
     const currency=rawCur==='TWD'?'NTD':rawCur;
 
@@ -390,15 +391,15 @@ function extractMegaByColumn(items,lines){
       .sort((a,c)=>c.y-a.y)[0];
     if(dtIt&&!valueDate)valueDate=dtIt.str.replace(/\//g,'-');
 
-    // Payee: x 200-480, |y - by| <= 18
+    // Payee: x 240-480 (payee col starts ~248, payer ends ~236), Y ±10
     const payeeItems=norm.filter(it=>{
-      if(it.x<200||it.x>480)return false;
-      if(Math.abs(it.y-by)>18)return false;
+      if(it.x<240||it.x>480)return false;
+      if(Math.abs(it.y-by)>10)return false;
       if(/^\d+$/.test(it.str))return false;
       if(/^[\d,]+\.\d{2}$/.test(it.str))return false;
       if(/^\d{7}/.test(it.str))return false;
+      if(curRx.test(it.str))return false;
       if(skipRx.test(it.str))return false;
-      if(payerCo&&it.str.length>=2&&(payerCo.startsWith(it.str)||payerCo.endsWith(it.str)))return false;
       return true;
     }).sort((a,c)=>c.y-a.y||a.x-c.x);
 
