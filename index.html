@@ -312,14 +312,19 @@ async function parsePDF(file){
     const buf=await file.arrayBuffer();
     const pdf=await pdfjsLib.getDocument({data:buf}).promise;
     let allLines=[];
+    let allItems=[];
     let txt='';
     for(let i=1;i<=pdf.numPages;i++){
       const pg=await pdf.getPage(i);
       const ct=await pg.getTextContent();
+      const pageOff=(i-1)*100000;
       // 依 Y 座標分組，重建行結構
       const byY={};
       ct.items.forEach(item=>{
         const y=Math.round(item.transform[5]);
+        const x=Math.round(item.transform[4]);
+        const s=item.str.trim();
+        if(s)allItems.push({x,y:y+pageOff,str:s});
         if(!byY[y])byY[y]=[];
         byY[y].push({x:item.transform[4],str:item.str});
       });
@@ -329,7 +334,7 @@ async function parsePDF(file){
         if(row){allLines.push(row);txt+=row+'\n';}
       });
     }
-    const r=extract(txt,allLines);
+    const r=extract(txt,allLines,allItems);
     if(r){
       fill(r);
       showSt('parse-st','ok',`✓ 解析完成！${r.payees.length>0?`找到 ${r.payees.length} 筆，總金額 ${r.currency} ${Number(r.totalAmount).toLocaleString()}`:'請確認欄位資料'}`);
@@ -340,6 +345,82 @@ async function parsePDF(file){
   }catch(e){
     showSt('parse-st','err','讀取失敗：'+e.message);
   }
+}
+
+
+// ── 兆豐全球金融網格式（X欄位過濾法）──
+function extractMegaByColumn(items,lines){
+  // Find payer company from Y-grouped lines
+  let payerCo='';
+  const nl=lines.map(l=>l.replace(/([^\x00-\x7F])\s+(?=[^\x00-\x7F])/g,'$1'));
+  for(let i=0;i<nl.length-1;i++){
+    if(/戶名/.test(nl[i])){
+      const m=nl[i+1].match(/^([^\d\s]+)/);
+      if(m)payerCo=m[1];
+      break;
+    }
+  }
+
+  // Normalize items
+  const norm=items.map(it=>({...it,str:it.str.replace(/([^\x00-\x7F])\s+(?=[^\x00-\x7F])/g,'$1')}));
+
+  // Find all batch numbers (9 digits, x < 100)
+  const batches=norm.filter(it=>/^\d{9}$/.test(it.str)&&it.x<100);
+
+  const transactions=[];
+  let valueDate='';
+
+  const skipRx=/^(限公司|萍|行|定|帳|司|付款資料編輯-?|付款人負擔|收款人代碼:?|待核|預約台幣單筆轉|手續費負擔|目前|備註|統一編號|處理中|已核定)$/;
+
+  for(const b of batches){
+    const by=b.y;
+
+    // Currency near batch (same Y ±10, x > 350)
+    const currIt=norm.find(it=>/^(TWD|USD|AUD|NZD|EUR|JPY|GBP|HKD|SGD|CNY)$/.test(it.str)&&Math.abs(it.y-by)<10&&it.x>350);
+    const rawCur=currIt?currIt.str:'TWD';
+    const currency=rawCur==='TWD'?'NTD':rawCur;
+
+    // Amount below batch (lower Y in pdf.js = lower on page), x > 300
+    const amtIt=norm.filter(it=>/^[\d,]+\.\d{2}$/.test(it.str)&&it.x>300&&it.y<by&&it.y>by-200)
+      .sort((a,c)=>c.y-a.y)[0];
+    const amount=amtIt?parseFloat(amtIt.str.replace(/,/g,'')):0;
+
+    // Date below batch, x 80-200
+    const dtIt=norm.filter(it=>/^\d{4}\/\d{2}\/\d{2}$/.test(it.str)&&it.x>80&&it.x<200&&it.y<by&&it.y>by-200)
+      .sort((a,c)=>c.y-a.y)[0];
+    if(dtIt&&!valueDate)valueDate=dtIt.str.replace(/\//g,'-');
+
+    // Payee: x 200-480, |y - by| <= 18
+    const payeeItems=norm.filter(it=>{
+      if(it.x<200||it.x>480)return false;
+      if(Math.abs(it.y-by)>18)return false;
+      if(/^\d+$/.test(it.str))return false;
+      if(/^[\d,]+\.\d{2}$/.test(it.str))return false;
+      if(/^\d{7}/.test(it.str))return false;
+      if(skipRx.test(it.str))return false;
+      if(payerCo&&it.str.length>=2&&(payerCo.startsWith(it.str)||payerCo.endsWith(it.str)))return false;
+      return true;
+    }).sort((a,c)=>c.y-a.y||a.x-c.x);
+
+    // Group by Y and join
+    const byY2={};
+    payeeItems.forEach(it=>{const k=Math.round(it.y);if(!byY2[k])byY2[k]=[];byY2[k].push(it);});
+    const payeeName=Object.entries(byY2)
+      .sort((a,c)=>Number(c[0])-Number(a[0]))
+      .map(([,its])=>its.sort((a,c)=>a.x-c.x).map(it=>it.str).join('')).join('').trim();
+
+    if(payeeName&&amount>0)transactions.push({name:payeeName,amount,currency,batchNo:b.str});
+  }
+
+  if(transactions.length===0)return null;
+  return{
+    bank:'兆豐銀行',
+    currency:transactions[0].currency,
+    valueDate,
+    totalAmount:transactions.reduce((s,t)=>s+t.amount,0),
+    payees:transactions.map(t=>({name:t.name,amount:t.amount,currency:t.currency})),
+    trans:transactions.map(t=>t.batchNo).join(' / ')
+  };
 }
 
 // ── 全球金融網格式解析（支援合庫 & 兆豐）──
@@ -473,10 +554,12 @@ function extractCobankTCB(lines){
   };
 }
 
-function extract(text,lines){
+function extract(text,lines,items=[]){
   try{
     // 全球金融網格式
     if(/全球.{0,3}金融網|global.{0,5}ebanking/i.test(text)&&lines&&lines.length>0){
+      const isMega=/Mega International|兆豐/i.test(text);
+      if(isMega&&items&&items.length>0)return extractMegaByColumn(items,lines);
       return extractGlobalEBanking(lines);
     }
     // 合作金庫企業網路銀行（轉帳交易狀態查詢）
