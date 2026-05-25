@@ -200,6 +200,9 @@ textarea{resize:vertical;min-height:72px;}
     <div class="card">
       <p class="card-title">訊息預覽</p>
       <div class="preview" id="preview">請填寫上方欄位或上傳文件…</div>
+      <div id="release-graphic" style="margin:8px 0 0;display:none;">
+        <svg id="release-svg" viewBox="0 0 220 52" xmlns="http://www.w3.org/2000/svg" style="width:220px;height:52px;display:block;"></svg>
+      </div>
       <div class="brow">
         <button class="btn btn-dark" id="submit-btn" onclick="doSubmit()">上傳並送出</button>
         <button class="btn" onclick="doCopy()">複製訊息</button>
@@ -708,8 +711,12 @@ function getMsg(){
   const payee=document.getElementById('payee').value.trim();
   const note=document.getElementById('note').value.trim();
   if(!amt&&!payee)return null;
+  const bankVal=document.getElementById('bank').value;
+  const isMobileBank=['中國信託','兆豐銀行'].includes(bankVal);
+  const releaseVia=isMobileBank?'Mobile app (Global eBanking app)':'Computer browser (global-ebanking.com)';
   let m=`Dear Alden,\nPlease release the following transaction(s), thank you.\n\n`;
   m+=`[Bank] ${bank}\n`;
+  m+=`[Release via] ${releaseVia}\n`;
   if(trans)m+=`[Trans #] ${trans}\n`;
   if(vd)m+=`[Value Date] ${vd}\n`;
   if(amt&&cur)m+=`[Total] ${cur} ${Number(amt).toLocaleString()}${parsedPayees.length>1?` (${parsedPayees.length} transactions)`:''}\n`;
@@ -720,9 +727,36 @@ function getMsg(){
   return m;
 }
 
+function updateReleaseGraphic(){
+  const bankVal=document.getElementById('bank').value;
+  const isMobile=['中國信託','兆豐銀行'].includes(bankVal);
+  const g=document.getElementById('release-graphic');
+  const svg=document.getElementById('release-svg');
+  if(!bankVal){g.style.display='none';return;}
+  g.style.display='block';
+  if(isMobile){
+    svg.innerHTML=`
+      <rect x="1" y="1" width="218" height="50" rx="8" fill="#EAF3DE" stroke="#639922" stroke-width="1"/>
+      <rect x="14" y="8" width="22" height="36" rx="4" fill="#3B6D11"/>
+      <rect x="17" y="12" width="16" height="26" rx="2" fill="#EAF3DE"/>
+      <circle cx="25" cy="40" r="2" fill="#EAF3DE"/>
+      <text x="44" y="23" font-family="sans-serif" font-size="12" font-weight="500" fill="#27500A">Release via mobile app</text>
+      <text x="44" y="39" font-family="sans-serif" font-size="10" fill="#3B6D11">Global eBanking app</text>`;
+  }else{
+    svg.innerHTML=`
+      <rect x="1" y="1" width="218" height="50" rx="8" fill="#E6F1FB" stroke="#378ADD" stroke-width="1"/>
+      <rect x="12" y="10" width="36" height="26" rx="3" fill="#185FA5"/>
+      <rect x="15" y="13" width="30" height="20" rx="1" fill="#E6F1FB"/>
+      <rect x="24" y="36" width="12" height="5" rx="1" fill="#185FA5"/>
+      <rect x="19" y="41" width="22" height="3" rx="1" fill="#185FA5"/>
+      <text x="56" y="23" font-family="sans-serif" font-size="12" font-weight="500" fill="#0C447C">Release via computer</text>
+      <text x="56" y="39" font-family="sans-serif" font-size="10" fill="#185FA5">global-ebanking.com</text>`;
+  }
+}
 function update(){
   document.getElementById('preview').textContent=getMsg()||'請填寫上方欄位或上傳文件…';
   updateReminder();
+  updateReleaseGraphic();
 }
 
 function doCopy(){
