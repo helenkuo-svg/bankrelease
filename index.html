@@ -716,10 +716,8 @@ function getMsg(){
   const releaseVia=isMobileBank?'Mobile app (Global eBanking app)':'Computer browser (global-ebanking.com)';
   let m=`Dear Alden,\nPlease release the following transaction(s), thank you.\n\n`;
   m+=`[Bank] ${bank}\n`;
-  const _imgBase='https://helenkuo-svg.github.io/bankrelease/img/';
-  const _rImg=isMobileBank?_imgBase+'release-mobile.svg':_imgBase+'release-computer.svg';
-  m+=`[Release via] ${releaseVia}\n`;
-  m+=`<img src="${_rImg}" width="240" height="60" alt="${releaseVia}">\n`;
+  const _emoji=isMobileBank?'📱':'💻';
+  m+=`${_emoji} ${releaseVia}\n`;
   if(trans)m+=`[Trans #] ${trans}\n`;
   if(vd)m+=`[Value Date] ${vd}\n`;
   if(amt&&cur)m+=`[Total] ${cur} ${Number(amt).toLocaleString()}${parsedPayees.length>1?` (${parsedPayees.length} transactions)`:''}\n`;
@@ -757,17 +755,14 @@ function updateReleaseGraphic(){
   }
 }
 function update(){
-  const _m2=getMsg();const _pe=document.getElementById('preview');
-  if(_m2){const _s=_m2.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-    _pe.innerHTML=_s.replace(/&lt;img\s([^&]*)&gt;/g,(x,a)=>'<img '+a.replace(/&amp;/g,'&')+'>');
-  }else{_pe.textContent='請填寫上方欄位或上傳文件…';}
+  document.getElementById('preview').textContent=getMsg()||'請填寫上方欄位或上傳文件…';
   updateReminder();
   updateReleaseGraphic();
 }
 
 function doCopy(){
   const m=getMsg();if(!m)return;
-  navigator.clipboard.writeText(m.replace(/<img[^>]*>\n?/g,'')).then(()=>showSt('submit-st','ok','已複製！貼到 Google Chat 吧'));
+  navigator.clipboard.writeText(m).then(()=>showSt('submit-st','ok','已複製！貼到 Google Chat 吧'));
 }
 
 function showSt(id,type,text){
